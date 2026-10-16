@@ -2,6 +2,7 @@ import argparse
 import json
 import sys
 from .crawler import crawl
+from .report import write_readable_reports, broken_occurrences
 
 def main():
     parser = argparse.ArgumentParser(description="Audit broken links on a website")
@@ -24,7 +25,9 @@ def main():
         parser.error(str(exc))
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
-    print(f"{len(report['broken'])} broken links; {report['pages_checked']} URLs checked; report: {args.output}")
+    txt_path, html_path = write_readable_reports(report, args.output)
+    print(f"Enlaces rotos: {len(report['broken'])} | Apariciones: {len(broken_occurrences(report))} | URLs comprobadas: {report['pages_checked']}")
+    print(f"JSON: {args.output} | TXT: {txt_path} | HTML: {html_path}")
     if report["truncated"]:
         print("WARNING: scan truncated by configured limits")
     return 1 if report["broken"] else 0
