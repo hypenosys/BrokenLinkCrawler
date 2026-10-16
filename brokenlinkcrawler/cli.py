@@ -1,5 +1,6 @@
 import argparse
 import json
+import sys
 from .crawler import crawl
 
 def main():
@@ -12,11 +13,13 @@ def main():
     parser.add_argument("--ignore-robots", action="store_true", help="Ignore robots.txt (only with permission)")
     parser.add_argument("--output", default="broken-links.json")
     args = parser.parse_args()
+    def progress(event, **details):
+        print(event, details, file=sys.stderr, flush=True)
     if args.max_pages < 1 or args.max_links < 1 or args.timeout <= 0 or args.delay < 0:
         parser.error("max-pages, max-links and timeout must be positive; delay must be nonnegative")
     try:
         report = crawl(args.url, max_pages=args.max_pages, max_links=args.max_links,
-                       timeout=args.timeout, delay=args.delay, respect_robots=not args.ignore_robots)
+                       timeout=args.timeout, delay=args.delay, respect_robots=not args.ignore_robots, progress=progress)
     except ValueError as exc:
         parser.error(str(exc))
     with open(args.output, "w", encoding="utf-8") as f:
