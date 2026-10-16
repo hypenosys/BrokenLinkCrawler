@@ -26,3 +26,13 @@ JSON output includes `results`, `broken`, `pages_checked`, and `truncated`. Exit
 This is a bounded single-threaded crawler, **not a guarantee of complete site coverage**. It does not render JavaScript, parse CSS URLs, load sitemaps, or check off-site links. Per-request timeouts are not a global deadline. `--max-pages` limits HTML page discovery and `--max-links` limits URL checks. For untrusted sites, run it in a restricted network environment as an additional defense in depth.
 
 Run tests with `python -m unittest discover -s tests -v`. GitHub Actions runs the same tests on pushes.
+
+## Informes legibles
+
+Cada ejecución genera tres archivos a partir de `--output report.json`: `report.json` (datos completos), `report.txt` (lista legible) y `report.html` (informe para navegador). En TXT y HTML se muestra **la página donde aparece el enlace roto**, **la URL que falla** y su **código HTTP**. Si un enlace roto aparece en varias páginas, se muestra una entrada por página de origen. Las URL sin página de origen conocida se identifican como tales.
+
+```bash
+.venv/Scripts/python -m brokenlinkcrawler https://www.montsia.cat/ca --max-pages 300 --max-links 10000 --delay 0.2 --output report.json
+```
+
+Abre `report.html` con tu navegador de Windows o `report.txt` con un editor. Los informes recogen únicamente enlaces detectados como 404/410; revisa `report.json` para estados inconclusos.
