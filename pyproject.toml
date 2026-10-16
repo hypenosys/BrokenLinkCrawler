@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "brokenlinkcrawler"
+version = "0.1.0"
+description = "Bounded, same-origin broken link crawler"
+requires-python = ">=3.10"
+license = "MIT"
+[project.scripts]
+brokenlinkcrawler = "brokenlinkcrawler.cli:main"
+[tool.setuptools.packages.find]
+include = ["brokenlinkcrawler*"]
