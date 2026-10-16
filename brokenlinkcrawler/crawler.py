@@ -131,9 +131,13 @@ def request(url, timeout=10, method="GET", max_bytes=MAX_BYTES):
         conn.close()
 
 def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
-          respect_robots=True, fetch=request):
+          respect_robots=True, fetch=request, progress=None):
     if max_pages < 1 or max_links < 1 or timeout <= 0 or delay < 0:
         raise ValueError("Limits must be positive (delay may be zero)")
+    def emit(event, **details):
+        if progress is not None:
+            progress(event, **details)
+
     start = canonical(start)
     root = origin(start)
     pending = deque([start])
@@ -144,6 +148,7 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
     references = {}
     robots = RobotFileParser()
     robots_url = urlunsplit((root[0], urlsplit(start).netloc, "/robots.txt", "", ""))
+    emit("robots_start", url=robots_url, enabled=respect_robots)
     if respect_robots:
         try:
             status, _, body = fetch(robots_url, timeout=timeout)
@@ -157,6 +162,7 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
                 robots.parse([])
         except (OSError, ValueError, ssl.SSLError):
             robots.parse(["User-agent: *", "Disallow: /"])
+    emit("robots_done")
     checked = 0
     while pending and checked < max_links:
         url = pending.popleft()
@@ -164,8 +170,10 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
             continue
         visited.add(url)
         checked += 1
+        emit("checking", url=url, checked=checked, queued=len(pending), discovered=len(scheduled))
         if respect_robots and not robots.can_fetch(AGENT, url):
             results[url] = {"status": "SKIPPED", "reason": "robots.txt"}
+            emit("result", url=url, status="SKIPPED", reason="robots.txt")
             continue
         if delay:
             time.sleep(delay)
@@ -192,6 +200,7 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
                 raise ValueError("Too many redirects")
             state = "BROKEN" if status in (404, 410) else "OK" if 200 <= status < 400 else "INCONCLUSIVE"
             results[url] = {"status": state, "http_status": status, "final_url": current}
+            emit("result", url=url, status=state, http_status=status, final_url=current)
             if state != "OK" or url not in pages or len(pages) > max_pages:
                 continue
             if "html" not in headers.get("content-type", "").lower():
@@ -218,6 +227,8 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
                     scheduled.add(target)
         except (OSError, ValueError, ssl.SSLError, http.client.HTTPException) as exc:
             results[url] = {"status": "INCONCLUSIVE", "reason": str(exc)[:200]}
+            emit("result", url=url, status="INCONCLUSIVE", reason=str(exc)[:200])
+    emit("finished", checked=len(visited), remaining=len(pending))
     return {
         "start": start, "pages_checked": len(visited), "truncated": bool(pending) or len(scheduled) >= max_links,
         "results": results,
