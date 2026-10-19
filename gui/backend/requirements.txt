@@ -1,0 +1,10 @@
+# gui/backend/requirements.txt
+fastapi==0.104.1
+uvicorn==0.24.0
+python-multipart==0.0.6
+pydantic==2.14.1
+
+# Crawler existente (local)
+# brokenlinkcrawler @ file:///path/to/BrokenLinkCrawler
+
+# Frontend (node_modules via npm)
