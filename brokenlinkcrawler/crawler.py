@@ -21,6 +21,23 @@ class Links(HTMLParser):
         self.links = []
         self.pages = []
         self.base = None
+        self.occurrences = []
+        self._active_links = []
+        self._label_parts = {}
+
+    def handle_data(self, data):
+        for item in self._active_links:
+            self._label_parts[id(item)].append(data)
+
+    def handle_endtag(self, tag):
+        if tag in ("a", "button"):
+            for index in range(len(self._active_links) - 1, -1, -1):
+                if self._active_links[index]["tag"] == tag:
+                    item = self._active_links.pop(index)
+                    if not item["text"]:
+                        item["text"] = " ".join("".join(self._label_parts[id(item)]).split())
+                    del self._label_parts[id(item)]
+                    break
 
     def handle_starttag(self, tag, attrs):
         data = dict(attrs)
@@ -28,6 +45,12 @@ class Links(HTMLParser):
             self.base = data["href"]
         attr = PAGE_TAGS.get(tag) or RESOURCE_TAGS.get(tag)
         if attr and data.get(attr):
+            item = {"url": data[attr], "tag": tag, "text": " ".join(
+                (data.get("aria-label") or data.get("title") or data.get("alt") or "").split())}
+            self.occurrences.append(item)
+            if tag == "a":
+                self._active_links.append(item)
+                self._label_parts[id(item)] = []
             self.links.append(data[attr])
             if tag in PAGE_TAGS:
                 self.pages.append(data[attr])
@@ -36,6 +59,8 @@ class Links(HTMLParser):
                 src = candidate.strip().split()
                 if src:
                     self.links.append(src[0])
+                    self.occurrences.append({"url": src[0], "tag": tag,
+                                             "text": " ".join((data.get("alt") or data.get("aria-label") or "").split())})
 
 def canonical(url):
     url = urldefrag(url)[0]
@@ -177,6 +202,7 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
     visited = set()
     results = {}
     references = {}
+    link_occurrences = {}
     robots = RobotFileParser()
     robots_url = urlunsplit((root[0], urlsplit(start).netloc, "/robots.txt", "", ""))
     emit("robots_start", url=robots_url, enabled=respect_robots)
@@ -230,7 +256,7 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
             else:
                 raise ValueError("Too many redirects")
             state = "BROKEN" if status in (404, 410) else "OK" if 200 <= status < 400 else "INCONCLUSIVE"
-            results[url] = {"status": state, "http_status": status, "final_url": current}
+            results[url] = {"status": state, "http_status": status, "final_url": current, "content_type": headers.get("content-type", "")}
             emit("result", url=url, status=state, http_status=status, final_url=current)
             if state != "OK" or url not in pages or len(pages) > max_pages:
                 continue
@@ -239,7 +265,8 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
             parser = Links()
             parser.feed(body.decode("utf-8", "replace"))
             base = urljoin(current, parser.base) if parser.base else current
-            for raw in parser.links:
+            for occurrence in parser.occurrences:
+                raw = occurrence["url"]
                 try:
                     target = canonical(urljoin(base, raw))
                 except ValueError:
@@ -248,6 +275,11 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
                     continue
                 if target not in references and len(references) >= max_links:
                     continue
+                entries = link_occurrences.setdefault(target, [])
+                entry = {"source": url, "text": occurrence["text"][:500],
+                         "tag": occurrence["tag"]}
+                if entry not in entries:
+                    entries.append(entry)
                 sources = references.setdefault(target, [])
                 if url not in sources:
                     sources.append(url)
@@ -272,8 +304,11 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
         "audit_reason": bootstrap_error or (results.get(start, {}).get("reason") if completed == 0 else None),
         "inconclusive_count": inconclusive,
         "skipped_count": skipped,
-        "checked_successfully": completed, "pages_checked": len(visited), "truncated": bool(pending) or len(scheduled) >= max_links,
+        "checked_successfully": completed,
+        "pages_scanned": sum(1 for url in pages if results.get(url, {}).get("status") == "OK"
+                             and "html" in results[url].get("content_type", "")),
+        "pages_checked": len(visited), "truncated": bool(pending) or len(scheduled) >= max_links,
         "results": results,
-        "broken": [{"url": url, "sources": references.get(url, []), **result}
+        "broken": [{"url": url, "sources": references.get(url, []), "occurrences": link_occurrences.get(url, []), **result}
                    for url, result in sorted(results.items()) if result["status"] == "BROKEN"],
     }
