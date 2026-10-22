@@ -8,6 +8,7 @@ import ipaddress
 import socket
 import ssl
 import time
+from .scope import ScopePolicy
 
 AGENT = "BrokenLinkCrawler/0.2 (+link-audit)"
 REDIRECTS = (301, 302, 303, 307, 308)
@@ -171,6 +172,7 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
     except (OSError, ValueError, ssl.SSLError, http.client.HTTPException) as exc:
         bootstrap_error = f"No se pudo resolver la URL inicial: {exc}"
     root = origin(start)
+    scope = ScopePolicy(start)
     pending = deque([start])
     scheduled = {start}
     pages = {start}
@@ -211,6 +213,7 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
         try:
             current = url
             redirects = set()
+            redirect_chain = []
             for _ in range(6):
                 status, headers, body = fetch(current, timeout=timeout)
                 if status not in REDIRECTS:
@@ -219,18 +222,18 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
                 if not location:
                     break
                 target = canonical(urljoin(current, location))
-                if origin(target) != root:
-                    raise ValueError("Redirect outside origin blocked")
+                scope.require(target)
                 if target in redirects or target == current:
                     raise ValueError("Redirect loop")
                 if respect_robots and not robots.can_fetch(AGENT, target):
                     raise ValueError("Redirect forbidden by robots.txt")
                 redirects.add(current)
+                redirect_chain.append({"source": current, "target": target, "http_status": status})
                 current = target
             else:
                 raise ValueError("Too many redirects")
             state = "BROKEN" if status in (404, 410) else "OK" if 200 <= status < 400 else "INCONCLUSIVE"
-            results[url] = {"status": state, "http_status": status, "final_url": current}
+            results[url] = {"status": state, "http_status": status, "final_url": current, "redirect_chain": redirect_chain}
             emit("result", url=url, status=state, http_status=status, final_url=current)
             if state != "OK" or url not in pages or len(pages) > max_pages:
                 continue
@@ -244,7 +247,7 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
                     target = canonical(urljoin(base, raw))
                 except ValueError:
                     continue
-                if origin(target) != root:
+                if not scope.allows(target):
                     continue
                 if target not in references and len(references) >= max_links:
                     continue
@@ -273,6 +276,7 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
         "inconclusive_count": inconclusive,
         "skipped_count": skipped,
         "checked_successfully": completed, "pages_checked": len(visited), "truncated": bool(pending) or len(scheduled) >= max_links,
+        "coverage": {"processed": len(visited), "ok": sum(x["status"] == "OK" for x in results.values()), "broken": len([x for x in results.values() if x["status"] == "BROKEN"]), "inconclusive": inconclusive, "skipped": skipped, "pending": len(pending)},
         "results": results,
         "broken": [{"url": url, "sources": references.get(url, []), **result}
                    for url, result in sorted(results.items()) if result["status"] == "BROKEN"],
