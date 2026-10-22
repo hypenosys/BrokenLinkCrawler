@@ -16,6 +16,28 @@ class ReportTests(unittest.TestCase):
             ],
         }
 
+    def test_group_technical_resources_and_keep_visible_links(self):
+        from brokenlinkcrawler.report import grouped_incidents, render_csv
+        self.report["broken"] = [
+            {"url": "https://example.com/site.webmanifest", "http_status": 404,
+             "occurrences": [
+                 {"source": "https://example.com/a", "tag": "link", "text": ""},
+                 {"source": "https://example.com/b", "tag": "link", "text": ""},
+                 {"source": "https://example.com/c", "tag": "link", "text": ""}]},
+            {"url": "https://example.com/missing", "http_status": 404,
+             "occurrences": [{"source": "https://example.com/a", "tag": "a", "text": "Trámite"}]},
+        ]
+        visible, technical = grouped_incidents(self.report)
+        self.assertEqual(len(visible), 1)
+        self.assertEqual(len(technical), 1)
+        self.assertEqual(technical[0]["appearances"], 3)
+        self.assertEqual(len(technical[0]["sources"]), 3)
+        self.assertIn("Trámite", render_html(self.report))
+        self.assertEqual(render_html(self.report).count("site.webmanifest"), 1)
+        self.assertIn("3 páginas", render_html(self.report))
+        self.assertIn("RECURSOS TÉCNICOS AGRUPADOS", render_text(self.report))
+        self.assertIn("tipo", render_csv(self.report))
+
     def test_one_row_per_source_and_target(self):
         rows = broken_occurrences(self.report)
         self.assertEqual(len(rows), 3)
