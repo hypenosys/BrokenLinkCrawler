@@ -31,7 +31,8 @@ class ReportTests(unittest.TestCase):
     def test_html_escapes_untrusted_urls(self):
         self.report["broken"][0]["url"] = 'https://example.com/?x=<script>alert(1)</script>'
         output = render_html(self.report)
-        self.assertNotIn("<script>", output)
+        self.assertNotIn("<script>alert(1)</script>", output)
+        self.assertIn("<script>const f=", output)
         self.assertIn("&lt;script&gt;", output)
         self.assertIn("Página donde aparece:", output)
 
