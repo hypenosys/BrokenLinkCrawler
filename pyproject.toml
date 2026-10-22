@@ -6,7 +6,8 @@ name = "brokenlinkcrawler"
 version = "0.1.0"
 description = "Bounded, same-origin broken link crawler"
 requires-python = ">=3.10"
-license = "MIT"
+license = "GPL-3.0-only"
+dependencies = ["reportlab>=4.0"]
 [project.scripts]
 brokenlinkcrawler = "brokenlinkcrawler.cli:main"
 [tool.setuptools.packages.find]

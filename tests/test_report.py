@@ -45,5 +45,35 @@ class ReportTests(unittest.TestCase):
         self.assertIn("no cubre todo el sitio", render_text(self.report))
         self.assertIn("Rastreo limitado", render_html(self.report))
 
+
+    def test_csv_contains_all_occurrences(self):
+        from brokenlinkcrawler.report import render_csv
+        import csv
+        import io
+        rows = list(csv.DictReader(io.StringIO(render_csv(self.report))))
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0]["pagina_origen"], "https://example.com/a")
+
+    def test_csv_prevents_spreadsheet_formula_injection(self):
+        from brokenlinkcrawler.report import render_csv
+        self.report["broken"][0]["sources"] = ["=HYPERLINK(1)"]
+        self.assertIn("'=HYPERLINK(1)", render_csv(self.report))
+
+    def test_html_has_accessible_table_and_filter(self):
+        output = render_html(self.report)
+        self.assertIn('<main>', output)
+        self.assertIn('scope="col"', output)
+        self.assertIn('aria-controls="results"', output)
+        self.assertIn('Página donde aparece', output)
+
+    def test_pdf_writes_document(self):
+        from brokenlinkcrawler.report import write_pdf
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "report.pdf"
+            write_pdf(self.report, path)
+            self.assertTrue(path.read_bytes().startswith(b"%PDF"))
+
 if __name__ == "__main__":
     unittest.main()

@@ -25,9 +25,9 @@ def main():
         parser.error(str(exc))
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
-    txt_path, html_path = write_readable_reports(report, args.output)
+    txt_path, html_path, csv_path, pdf_path = write_readable_reports(report, args.output)
     print(f"Enlaces rotos: {len(report['broken'])} | Apariciones: {len(broken_occurrences(report))} | URLs comprobadas: {report['pages_checked']}")
-    print(f"JSON: {args.output} | TXT: {txt_path} | HTML: {html_path}")
+    print(f"JSON: {args.output} | TXT: {txt_path} | HTML: {html_path} | CSV: {csv_path} | PDF: {pdf_path}")
     if report["truncated"]:
         print("WARNING: scan truncated by configured limits")
     return 1 if report["broken"] else 0
