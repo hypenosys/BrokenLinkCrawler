@@ -8,6 +8,32 @@ class Tests(unittest.TestCase):
         p.feed('<a href="/missing">x</a><img src="/pic.png"><source srcset="/a.png 1x, /b.png 2x">')
         self.assertEqual(p.links, ["/missing", "/pic.png", "/a.png", "/b.png"])
 
+    def test_link_text_and_repeated_occurrences(self):
+        def fetch(url, timeout=10):
+            fixtures = {
+                "https://example.com/robots.txt": (404, {}, b""),
+                "https://example.com/": (200, {"content-type": "text/html"},
+                    b'<a href="/missing">Download <strong>form</strong></a>'
+                    b'<a href="/missing" aria-label="Open form">Icon</a>'
+                    b'<a href="/next">Next</a>'),
+                "https://example.com/next": (200, {"content-type": "text/html"},
+                    b'<a href="/missing"><span>Another</span> form</a>'),
+                "https://example.com/missing": (404, {}, b""),
+            }
+            return fixtures[url]
+        result = crawl("https://example.com/", fetch=fetch)
+        broken = result["broken"][0]
+        self.assertEqual(len(broken["occurrences"]), 3)
+        self.assertEqual({x["text"] for x in broken["occurrences"]},
+                         {"Download form", "Open form", "Another form"})
+        self.assertEqual(result["pages_scanned"], 2)
+
+    def test_image_alt_text(self):
+        parser = Links()
+        parser.feed('<a href="/missing"><img src="/pic.png" alt="Download PDF"></a>')
+        self.assertEqual(parser.occurrences[0]["url"], "/missing")
+        self.assertEqual(parser.occurrences[0]["text"], "")
+
     def test_invalid_urls(self):
         for url in ("file:///etc/passwd", "http://user:pass@example.com", "http://127.0.0.1:0",
                     "http://1234/", "http://[fe80::1%25eth0]/"):
