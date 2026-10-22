@@ -30,6 +30,11 @@ def main():
     print(f"JSON: {args.output} | TXT: {txt_path} | HTML: {html_path} | CSV: {csv_path} | PDF: {pdf_path}")
     if report["truncated"]:
         print("WARNING: scan truncated by configured limits")
+    if report.get("audit_status") == "INCONCLUSIVE":
+        print("ERROR: auditoría inconclusa: " + str(report.get("audit_reason") or "sin comprobaciones válidas"), file=sys.stderr)
+        return 2
+    if report.get("audit_status") == "PARTIAL":
+        print("WARNING: auditoría parcial; consulte el JSON")
     return 1 if report["broken"] else 0
 
 if __name__ == "__main__":

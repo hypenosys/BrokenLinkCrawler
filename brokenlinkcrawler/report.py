@@ -17,6 +17,15 @@ def broken_occurrences(report):
     return sorted(rows, key=lambda row: (row["source"], row["target"]))
 
 
+def audit_notice(report):
+    status = report.get("audit_status")
+    if status == "INCONCLUSIVE":
+        return "AUDITORÍA INCONCLUSA: " + str(report.get("audit_reason") or "No se pudieron comprobar URLs satisfactoriamente.")
+    if status == "PARTIAL":
+        return "AUDITORÍA PARCIAL: hay URLs sin verificar o límites de rastreo."
+    return ""
+
+
 def render_text(report):
     rows = broken_occurrences(report)
     targets = len(report.get("broken", []))
@@ -30,6 +39,8 @@ def render_text(report):
         f"Rastreo limitado: {'SÍ' if report.get('truncated') else 'NO'}",
         "",
     ]
+    if audit_notice(report):
+        lines.append(audit_notice(report))
     if not rows:
         lines.append("No se detectaron enlaces HTTP 404/410 en las URLs comprobadas.")
     for i, row in enumerate(rows, 1):
@@ -54,6 +65,8 @@ def render_html(report):
     occurrences = len(rows)
     warning = ('<p role="status" class="warning">Rastreo limitado: no se ha analizado todo el sitio.</p>'
                if report.get("truncated") else "")
+    if audit_notice(report):
+        warning += '<p role="alert" class="warning">' + escape(audit_notice(report)) + '</p>'
     body = []
     for index, row in enumerate(rows, 1):
         code = escape(str(row["http_status"] if row["http_status"] is not None else "?"))
@@ -151,6 +164,8 @@ def write_pdf(report, path):
                 Spacer(1, 12)]
     if report.get("truncated"):
         elements.append(Paragraph("AVISO: rastreo limitado; cobertura incompleta.", styles["BodyText"]))
+    if audit_notice(report):
+        elements.append(Paragraph(xml_escape(audit_notice(report)), styles["BodyText"]))
     data = [[Paragraph(x, cell) for x in ("#", "URL rota", "Página de origen", "HTTP")]]
     for i, row in enumerate(broken_occurrences(report), 1):
         data.append([Paragraph(str(i), cell),
