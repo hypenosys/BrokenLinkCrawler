@@ -36,6 +36,12 @@ class ReportTests(unittest.TestCase):
         self.assertIn("&lt;script&gt;", output)
         self.assertIn('<th scope="col">Página donde aparece</th>', output)
 
+    def test_inconclusive_report_warns(self):
+        self.report["audit_status"] = "INCONCLUSIVE"
+        self.report["audit_reason"] = "Redirección bloqueada"
+        self.assertIn("Redirección bloqueada", render_text(self.report))
+        self.assertIn("Redirección bloqueada", render_html(self.report))
+
     def test_empty_report(self):
         self.report["broken"] = []
         self.assertIn("No se detectaron", render_text(self.report))
