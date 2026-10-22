@@ -66,6 +66,31 @@ class Tests(unittest.TestCase):
         result = crawl("https://example.com", fetch=fetch)
         self.assertEqual(result["results"]["https://example.com/"]["status"], "INCONCLUSIVE")
 
+    def test_initial_www_redirect(self):
+        calls = []
+        def fetch(url, timeout=10):
+            calls.append(url)
+            mapping = {
+                "https://example.com/": (301, {"location": "https://www.example.com/"}, b""),
+                "https://www.example.com/robots.txt": (404, {}, b""),
+                "https://www.example.com/": (200, {"content-type": "text/html"}, b'<a href="/missing">x</a>'),
+                "https://www.example.com/missing": (404, {}, b""),
+            }
+            return mapping[url]
+        result = crawl("https://example.com/", fetch=fetch)
+        self.assertEqual(result["start"], "https://www.example.com/")
+        self.assertIn("https://www.example.com/robots.txt", calls)
+        self.assertEqual(result["audit_status"], "COMPLETE")
+        self.assertEqual(len(result["broken"]), 1)
+
+    def test_initial_external_redirect_remains_blocked(self):
+        def fetch(url, timeout=10):
+            if url.endswith("robots.txt"):
+                return 404, {}, b""
+            return 302, {"location": "https://unrelated.example/"}, b""
+        result = crawl("https://example.com/", fetch=fetch)
+        self.assertEqual(result["audit_status"], "INCONCLUSIVE")
+
     def test_bounded(self):
         def fetch(url, timeout=10):
             if url.endswith("robots.txt"):
