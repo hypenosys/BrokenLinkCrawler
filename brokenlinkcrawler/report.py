@@ -17,13 +17,32 @@ def broken_occurrences(report):
             for entry in occurrences:
                 rows.append({"source": entry["source"], "target": target,
                              "text": entry.get("text") or "Sin texto identificable",
-                             "http_status": code, "final_url": item.get("final_url", target)})
+                             "http_status": code, "final_url": item.get("final_url", target), "tag": entry.get("tag", "a")})
         else:
             for source in sorted(set(item.get("sources", []))) or ["(URL inicial o fuente desconocida)"]:
                 rows.append({"source": source, "target": target,
                              "text": "Sin texto identificable",
-                             "http_status": code, "final_url": item.get("final_url", target)})
+                             "http_status": code, "final_url": item.get("final_url", target), "tag": "a"})
     return sorted(rows, key=lambda row: (row["source"], row["target"]))
+
+
+def grouped_incidents(report):
+    """Prioritize anchor text; group non-anchor resources by target and tag."""
+    rows = broken_occurrences(report)
+    visible = [row for row in rows if row["tag"] == "a"]
+    grouped = {}
+    for row in rows:
+        if row["tag"] == "a":
+            continue
+        key = (row["target"], row["tag"], row["http_status"])
+        item = grouped.setdefault(key, {"target": row["target"], "tag": row["tag"],
+                                        "http_status": row["http_status"],
+                                        "sources": set(), "appearances": 0})
+        item["sources"].add(row["source"])
+        item["appearances"] += 1
+    technical = [{**item, "sources": sorted(item["sources"])}
+                 for key, item in sorted(grouped.items())]
+    return visible, technical
 
 
 def audit_notice(report):
@@ -37,6 +56,7 @@ def audit_notice(report):
 
 def render_text(report):
     rows = broken_occurrences(report)
+    visible, technical = grouped_incidents(report)
     targets = len(report.get("broken", []))
     lines = [
         "BROKEN LINK CRAWLER - INFORME LEGIBLE",
@@ -53,7 +73,7 @@ def render_text(report):
         lines.append(audit_notice(report))
     if not rows:
         lines.append("No se detectaron enlaces HTTP 404/410 en las URLs comprobadas.")
-    for i, row in enumerate(rows, 1):
+    for i, row in enumerate(visible, 1):
         lines.extend([
             f"[{i}] HTTP {row['http_status'] if row['http_status'] is not None else '?'}",
             f"    PÁGINA DE ORIGEN: {row['source']}",
@@ -63,6 +83,14 @@ def render_text(report):
         if row["final_url"] != row["target"]:
             lines.append(f"    URL FINAL:       {row['final_url']}")
         lines.append("")
+    if technical:
+        lines.append("RECURSOS TÉCNICOS AGRUPADOS")
+        for item in technical:
+            lines.append(f"HTTP {item['http_status']} | {item['tag']} | {item['target']}")
+            lines.append(f"    {item['appearances']} apariciones en {len(item['sources'])} páginas")
+            for source in item["sources"]:
+                lines.append(f"    PÁGINA: {source}")
+            lines.append("")
     if report.get("truncated"):
         lines.append("AVISO: El rastreo alcanzó un límite; el informe no cubre todo el sitio.")
     return "\n".join(lines).rstrip() + "\n"
@@ -72,6 +100,7 @@ def render_text(report):
 def render_html(report):
     """Self-contained HTML report with a local filtering script."""
     rows = broken_occurrences(report)
+    visible, technical = grouped_incidents(report)
     count = len(report.get("broken", []))
     occurrences = len(rows)
     warning = ('<p role="status" class="warning">Rastreo limitado: no se ha analizado todo el sitio.</p>'
@@ -79,7 +108,7 @@ def render_html(report):
     if audit_notice(report):
         warning += '<p role="alert" class="warning">' + escape(audit_notice(report)) + '</p>'
     body = []
-    for index, row in enumerate(rows, 1):
+    for index, row in enumerate(visible, 1):
         code = escape(str(row["http_status"] if row["http_status"] is not None else "?"))
         source = escape(row["source"], quote=True)
         target = escape(row["target"], quote=True)
@@ -94,6 +123,22 @@ def render_html(report):
         )
     if not body:
         body.append('<tr><td colspan="6">No se detectaron enlaces HTTP 404/410 en las URLs comprobadas.</td></tr>')
+    technical_rows = []
+    for item in technical:
+        target = escape(item["target"], quote=True)
+        source_items = "".join(
+            '<li>' + escape(source) + '</li>' for source in item["sources"])
+        technical_rows.append(
+            '<tr><td>' + target + '</td><td>' + escape(item["tag"]) +
+            '</td><td>HTTP ' + str(item["http_status"]) + '</td><td>' +
+            str(item["appearances"]) + '</td><td><details><summary>' +
+            str(len(item["sources"])) + ' páginas</summary><ul>' +
+            source_items + '</ul></details></td></tr>')
+    technical_section = (
+        '<h2>Recursos técnicos agrupados</h2><div class="scroll"><table>'
+        '<thead><tr><th>URL rota</th><th>Tipo</th><th>HTTP</th>'
+        '<th>Apariciones</th><th>Origen</th></tr></thead><tbody>' +
+        "".join(technical_rows) + '</tbody></table></div>') if technical else ""
     site = escape(str(report.get("start", "")))
     pages = escape(str(report.get("pages_scanned", report.get("pages_checked", 0))))
     return (
@@ -120,7 +165,7 @@ def render_html(report):
         f'<div class="metric"><strong>{count}</strong>Enlaces rotos únicos</div>'
         f'<div class="metric"><strong>{occurrences}</strong>Apariciones</div></section>'
         + warning
-        + '<h2>Incidencias confirmadas (HTTP 404/410)</h2>'
+        + '<h2>Enlaces visibles con error (HTTP 404/410)</h2>'
         + '<p>Otros estados, incluidos errores inconclusos, se conservan en el JSON. '
           'Los resultados pueden estar limitados por la configuración del rastreo.</p>'
         + '<label for="filter">Buscar en los resultados</label> '
@@ -130,7 +175,7 @@ def render_html(report):
           '<thead><tr><th scope="col">#</th><th scope="col">URL rota</th>'
           '<th scope="col">Página donde aparece</th><th scope="col">Texto del enlace o botón</th><th scope="col">Estado</th>'
           '<th scope="col">URL final</th></tr></thead><tbody>'
-        + "".join(body) + '</tbody></table></div></main>'
+        + "".join(body) + '</tbody></table></div>' + technical_section + '</main>'
         + '<script>const f=document.getElementById("filter"),'
           'r=[...document.querySelectorAll("#results tbody tr")],'
           's=document.getElementById("filter-status");'
@@ -147,13 +192,13 @@ def render_csv(report):
     import io
     stream = io.StringIO(newline="")
     writer = csv.writer(stream)
-    writer.writerow(["pagina_origen", "url_rota", "texto_enlace", "codigo_http", "url_final"])
+    writer.writerow(["pagina_origen", "url_rota", "texto_enlace", "codigo_http", "url_final", "tipo"])
     for row in broken_occurrences(report):
         def safe(value):
             value = str(value if value is not None else "")
             return "'" + value if value.lstrip().startswith(("=", "+", "-", "@", "\\t", "\\r")) else value
         writer.writerow([safe(row["source"]), safe(row["target"]), safe(row["text"]),
-                         safe(row["http_status"]), safe(row["final_url"])])
+                         safe(row["http_status"]), safe(row["final_url"]), safe(row["tag"])])
     return stream.getvalue()
 
 
@@ -179,8 +224,9 @@ def write_pdf(report, path):
         elements.append(Paragraph("AVISO: rastreo limitado; cobertura incompleta.", styles["BodyText"]))
     if audit_notice(report):
         elements.append(Paragraph(xml_escape(audit_notice(report)), styles["BodyText"]))
+    visible, technical = grouped_incidents(report)
     data = [[Paragraph(x, cell) for x in ("#", "URL rota", "Página de origen", "Texto del enlace", "HTTP")]]
-    for i, row in enumerate(broken_occurrences(report), 1):
+    for i, row in enumerate(visible, 1):
         data.append([Paragraph(str(i), cell),
                      Paragraph(xml_escape(str(row["target"])), cell),
                      Paragraph(xml_escape(str(row["source"])), cell),
@@ -195,6 +241,14 @@ def write_pdf(report, path):
                                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
                                    ("LINEBELOW", (0, 0), (-1, 0), .5, colors.grey)]))
         elements.append(table)
+    if technical:
+        elements.append(Paragraph("Recursos técnicos agrupados", styles["Heading2"]))
+        for item in technical:
+            elements.append(Paragraph(xml_escape(
+                f"HTTP {item['http_status']} | {item['tag']} | {item['target']} | "
+                f"{item['appearances']} apariciones en {len(item['sources'])} páginas"), cell))
+            for source in item["sources"]:
+                elements.append(Paragraph(xml_escape("Origen: " + source), cell))
     doc.build(elements)
 
 
