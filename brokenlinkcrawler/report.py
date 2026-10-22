@@ -82,7 +82,7 @@ def render_html(report):
         '.summary{display:flex;gap:1rem;flex-wrap:wrap}.metric{border:1px solid #888;border-radius:10px;padding:1rem;min-width:160px}'
         '.metric strong{display:block;font-size:1.7rem}.scroll{overflow-x:auto}'
         'table{border-collapse:collapse;width:100%;margin-top:1rem}th,td{text-align:left;border-bottom:1px solid #888;padding:.7rem;vertical-align:top;overflow-wrap:anywhere}'
-        'thead{background:Canvas}tbody tr:nth-child(even){background:color-mix(in srgb,CanvasText 5%,Canvas)}'
+        'thead{background:Canvas}tbody tr[hidden]{display:none}tbody tr:nth-child(even){background:color-mix(in srgb,CanvasText 5%,Canvas)}'
         '.code{font-weight:700}.warning{border-left:4px solid #c60;padding:.7rem}'
         'input{font:inherit;padding:.6rem;max-width:100%;width:25rem}'
         '@media print{body{max-width:none;margin:0}input,label{display:none}a{color:inherit;text-decoration:none}thead{display:table-header-group}tr{break-inside:avoid}}'
