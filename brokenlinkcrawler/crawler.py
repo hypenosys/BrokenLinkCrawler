@@ -130,6 +130,14 @@ def request(url, timeout=10, method="GET", max_bytes=MAX_BYTES):
     finally:
         conn.close()
 
+def www_equivalent(source, target):
+    a, b = urlsplit(source), urlsplit(target)
+    if a.scheme != "https" or b.scheme != "https" or a.port not in (None, 443) or b.port not in (None, 443):
+        return False
+    base = a.hostname.removeprefix("www.")
+    return a.hostname != b.hostname and {a.hostname, b.hostname} == {base, "www." + base}
+
+
 def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
           respect_robots=True, fetch=request, progress=None):
     if max_pages < 1 or max_links < 1 or timeout <= 0 or delay < 0:
@@ -139,6 +147,29 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
             progress(event, **details)
 
     start = canonical(start)
+    requested_start = start
+    bootstrap_error = None
+    try:
+        probe = start
+        seen = {probe}
+        for _ in range(6):
+            status, headers, _ = fetch(probe, timeout=timeout)
+            if status not in REDIRECTS or not headers.get("location"):
+                break
+            destination = canonical(urljoin(probe, headers["location"]))
+            if origin(destination) != origin(probe) and not www_equivalent(probe, destination):
+                bootstrap_error = f"Redirección inicial bloqueada: {probe} -> {destination}"
+                break
+            if destination in seen:
+                bootstrap_error = "Bucle de redirección inicial"
+                break
+            seen.add(destination)
+            probe = destination
+        if bootstrap_error is None and origin(probe) != origin(start):
+            emit("canonical_redirect", source=start, target=probe)
+            start = probe
+    except (OSError, ValueError, ssl.SSLError, http.client.HTTPException) as exc:
+        bootstrap_error = f"No se pudo resolver la URL inicial: {exc}"
     root = origin(start)
     pending = deque([start])
     scheduled = {start}
@@ -229,8 +260,19 @@ def crawl(start, max_pages=100, timeout=10, max_links=10000, delay=0.0,
             results[url] = {"status": "INCONCLUSIVE", "reason": str(exc)[:200]}
             emit("result", url=url, status="INCONCLUSIVE", reason=str(exc)[:200])
     emit("finished", checked=len(visited), remaining=len(pending))
+    inconclusive = sum(item["status"] == "INCONCLUSIVE" for item in results.values())
+    skipped = sum(item["status"] == "SKIPPED" for item in results.values())
+    completed = sum(item["status"] in ("OK", "BROKEN") for item in results.values())
+    audit_status = ("INCONCLUSIVE" if bootstrap_error or completed == 0 else
+                    "PARTIAL" if pending or inconclusive or skipped or len(scheduled) >= max_links else "COMPLETE")
     return {
-        "start": start, "pages_checked": len(visited), "truncated": bool(pending) or len(scheduled) >= max_links,
+        "requested_start": requested_start,
+        "start": start,
+        "audit_status": audit_status,
+        "audit_reason": bootstrap_error or (results.get(start, {}).get("reason") if completed == 0 else None),
+        "inconclusive_count": inconclusive,
+        "skipped_count": skipped,
+        "checked_successfully": completed, "pages_checked": len(visited), "truncated": bool(pending) or len(scheduled) >= max_links,
         "results": results,
         "broken": [{"url": url, "sources": references.get(url, []), **result}
                    for url, result in sorted(results.items()) if result["status"] == "BROKEN"],
