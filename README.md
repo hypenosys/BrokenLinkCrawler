@@ -36,3 +36,7 @@ Cada ejecución genera tres archivos a partir de `--output report.json`: `report
 ```
 
 Abre `report.html` con tu navegador de Windows o `report.txt` con un editor. Los informes recogen únicamente enlaces detectados como 404/410; revisa `report.json` para estados inconclusos.
+
+## Informe simplificado de incidencias
+
+Los informes legibles HTML, TXT, CSV y PDF muestran solo errores HTTP 404/410, con la URL de destino, la página donde aparece y el texto visible del enlace o su etiqueta accesible (por ejemplo `aria-label`). Una URL rota puede aparecer varias veces en la misma página con textos distintos: se conservan las apariciones. Para enlaces sin etiqueta se muestra `Sin texto identificable`. Se añade `pages_scanned` (páginas HTML analizadas) y se mantiene `pages_checked` (URLs procesadas) por compatibilidad. Los HTTP 200 se usan para rastrear pero no aparecen en los informes legibles; el JSON conserva diagnósticos completos para auditoría. Los botones implementados mediante JavaScript sin un destino HTML explícito no se pueden identificar con el parser estático.
