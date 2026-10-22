@@ -22,6 +22,26 @@ class ReportTests(unittest.TestCase):
         self.assertEqual([row["source"] for row in rows],
                          ["https://example.com/a", "https://example.com/a", "https://example.com/b"])
 
+    def test_occurrence_labels_in_all_readable_formats(self):
+        self.report["broken"][0]["occurrences"] = [
+            {"source": "https://example.com/a", "text": "Descargar solicitud", "tag": "a"},
+            {"source": "https://example.com/a", "text": "Abrir formulario", "tag": "a"},
+        ]
+        from brokenlinkcrawler.report import render_csv
+        rows = broken_occurrences(self.report)
+        self.assertEqual(len(rows), 3)
+        self.assertIn("Descargar solicitud", render_text(self.report))
+        self.assertIn("Abrir formulario", render_html(self.report))
+        self.assertIn("texto_enlace", render_csv(self.report))
+        self.assertIn("Descargar solicitud", render_csv(self.report))
+
+    def test_link_text_html_escaped(self):
+        self.report["broken"][0]["occurrences"] = [
+            {"source": "https://example.com/a", "text": "<img src=x onerror=alert(1)>", "tag": "a"}
+        ]
+        self.assertNotIn("<img src=x onerror=alert(1)>", render_html(self.report))
+        self.assertIn("&lt;img", render_html(self.report))
+
     def test_text_contains_origin_and_target(self):
         output = render_text(self.report)
         self.assertIn("PÁGINA DE ORIGEN: https://example.com/a", output)
