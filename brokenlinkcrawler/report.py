@@ -10,10 +10,19 @@ def broken_occurrences(report):
     for item in report.get("broken", []):
         target = item["url"]
         code = item.get("http_status")
-        sources = sorted(set(item.get("sources", [])))
-        for source in sources or ["(URL inicial o fuente desconocida)"]:
-            rows.append({"source": source, "target": target, "http_status": code,
-                         "final_url": item.get("final_url", target)})
+        if code not in (404, 410):
+            continue
+        occurrences = item.get("occurrences")
+        if occurrences is not None:
+            for entry in occurrences:
+                rows.append({"source": entry["source"], "target": target,
+                             "text": entry.get("text") or "Sin texto identificable",
+                             "http_status": code, "final_url": item.get("final_url", target)})
+        else:
+            for source in sorted(set(item.get("sources", []))) or ["(URL inicial o fuente desconocida)"]:
+                rows.append({"source": source, "target": target,
+                             "text": "Sin texto identificable",
+                             "http_status": code, "final_url": item.get("final_url", target)})
     return sorted(rows, key=lambda row: (row["source"], row["target"]))
 
 
@@ -33,6 +42,7 @@ def render_text(report):
         "BROKEN LINK CRAWLER - INFORME LEGIBLE",
         "=" * 65,
         f"Sitio inicial: {report.get('start', '')}",
+        f"Páginas HTML escaneadas: {report.get('pages_scanned', report.get('pages_checked', 0))}",
         f"URLs comprobadas: {report.get('pages_checked', 0)}",
         f"Enlaces rotos únicos: {targets}",
         f"Apariciones de enlaces rotos: {len(rows)}",
@@ -48,6 +58,7 @@ def render_text(report):
             f"[{i}] HTTP {row['http_status'] if row['http_status'] is not None else '?'}",
             f"    PÁGINA DE ORIGEN: {row['source']}",
             f"    URL QUE FALLA:   {row['target']}",
+            f"    TEXTO DEL ENLACE: {row['text']}",
         ])
         if row["final_url"] != row["target"]:
             lines.append(f"    URL FINAL:       {row['final_url']}")
@@ -59,7 +70,7 @@ def render_text(report):
 
 
 def render_html(report):
-    """Self-contained, accessible HTML report; no remote assets or JavaScript."""
+    """Self-contained HTML report with a local filtering script."""
     rows = broken_occurrences(report)
     count = len(report.get("broken", []))
     occurrences = len(rows)
@@ -73,16 +84,18 @@ def render_html(report):
         source = escape(row["source"], quote=True)
         target = escape(row["target"], quote=True)
         final = escape(row["final_url"], quote=True)
+        label = escape(row["text"], quote=True)
         body.append(
             f'<tr><th scope="row">{index}</th><td><a href="{target}">{target}</a></td>'
             f'<td><a href="{source}">{source}</a></td>'
+            f'<td>{label}</td>'
             f'<td><strong class="code">HTTP {code}</strong></td>'
             f'<td>{("<a href=" + chr(34) + final + chr(34) + ">" + final + "</a>") if final != target else "—"}</td></tr>'
         )
     if not body:
-        body.append('<tr><td colspan="5">No se detectaron enlaces HTTP 404/410 en las URLs comprobadas.</td></tr>')
+        body.append('<tr><td colspan="6">No se detectaron enlaces HTTP 404/410 en las URLs comprobadas.</td></tr>')
     site = escape(str(report.get("start", "")))
-    pages = escape(str(report.get("pages_checked", 0)))
+    pages = escape(str(report.get("pages_scanned", report.get("pages_checked", 0))))
     return (
         '<!doctype html><html lang="es"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -103,7 +116,7 @@ def render_html(report):
         '<h1>Informe de enlaces rotos</h1>'
         f'<p><strong>Sitio:</strong> {site}</p>'
         '<section aria-label="Resumen del análisis" class="summary">'
-        f'<div class="metric"><strong>{pages}</strong>URLs comprobadas</div>'
+        f'<div class="metric"><strong>{pages}</strong>Páginas HTML escaneadas</div>'
         f'<div class="metric"><strong>{count}</strong>Enlaces rotos únicos</div>'
         f'<div class="metric"><strong>{occurrences}</strong>Apariciones</div></section>'
         + warning
@@ -115,7 +128,7 @@ def render_html(report):
         + '<p id="filter-status" role="status" aria-live="polite"></p>'
         + '<div class="scroll"><table id="results"><caption>Enlaces rotos por página de origen</caption>'
           '<thead><tr><th scope="col">#</th><th scope="col">URL rota</th>'
-          '<th scope="col">Página donde aparece</th><th scope="col">Estado</th>'
+          '<th scope="col">Página donde aparece</th><th scope="col">Texto del enlace o botón</th><th scope="col">Estado</th>'
           '<th scope="col">URL final</th></tr></thead><tbody>'
         + "".join(body) + '</tbody></table></div></main>'
         + '<script>const f=document.getElementById("filter"),'
@@ -134,12 +147,12 @@ def render_csv(report):
     import io
     stream = io.StringIO(newline="")
     writer = csv.writer(stream)
-    writer.writerow(["pagina_origen", "url_rota", "codigo_http", "url_final"])
+    writer.writerow(["pagina_origen", "url_rota", "texto_enlace", "codigo_http", "url_final"])
     for row in broken_occurrences(report):
         def safe(value):
             value = str(value if value is not None else "")
             return "'" + value if value.lstrip().startswith(("=", "+", "-", "@", "\\t", "\\r")) else value
-        writer.writerow([safe(row["source"]), safe(row["target"]),
+        writer.writerow([safe(row["source"]), safe(row["target"]), safe(row["text"]),
                          safe(row["http_status"]), safe(row["final_url"])])
     return stream.getvalue()
 
@@ -158,7 +171,7 @@ def write_pdf(report, path):
     elements = [Paragraph("Informe de enlaces rotos", styles["Title"]),
                 Paragraph("Sitio: " + xml_escape(str(report.get("start", ""))), cell),
                 Spacer(1, 12),
-                Paragraph(f"URLs comprobadas: {report.get('pages_checked', 0)} | "
+                Paragraph(f"Páginas HTML escaneadas: {report.get('pages_scanned', report.get('pages_checked', 0))} | "
                           f"Enlaces rotos únicos: {len(report.get('broken', []))} | "
                           f"Apariciones: {len(broken_occurrences(report))}", styles["BodyText"]),
                 Spacer(1, 12)]
@@ -166,16 +179,17 @@ def write_pdf(report, path):
         elements.append(Paragraph("AVISO: rastreo limitado; cobertura incompleta.", styles["BodyText"]))
     if audit_notice(report):
         elements.append(Paragraph(xml_escape(audit_notice(report)), styles["BodyText"]))
-    data = [[Paragraph(x, cell) for x in ("#", "URL rota", "Página de origen", "HTTP")]]
+    data = [[Paragraph(x, cell) for x in ("#", "URL rota", "Página de origen", "Texto del enlace", "HTTP")]]
     for i, row in enumerate(broken_occurrences(report), 1):
         data.append([Paragraph(str(i), cell),
                      Paragraph(xml_escape(str(row["target"])), cell),
                      Paragraph(xml_escape(str(row["source"])), cell),
+                     Paragraph(xml_escape(str(row["text"])), cell),
                      Paragraph(xml_escape(str(row["http_status"] or "?")), cell)])
     if len(data) == 1:
         elements.append(Paragraph("No se detectaron enlaces HTTP 404/410.", styles["BodyText"]))
     else:
-        table = LongTable(data, colWidths=[24, 210, 240, 35], repeatRows=1, hAlign="LEFT")
+        table = LongTable(data, colWidths=[20, 145, 170, 135, 35], repeatRows=1, hAlign="LEFT")
         table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
                                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
                                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
