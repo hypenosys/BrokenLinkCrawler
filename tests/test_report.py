@@ -34,7 +34,7 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn("<script>alert(1)</script>", output)
         self.assertIn("<script>const f=", output)
         self.assertIn("&lt;script&gt;", output)
-        self.assertIn("Página donde aparece:", output)
+        self.assertIn('<th scope="col">Página donde aparece</th>', output)
 
     def test_empty_report(self):
         self.report["broken"] = []
